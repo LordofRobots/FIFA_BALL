@@ -979,12 +979,12 @@ public:
     lastRenderMs_ = ms;
 
     const bool animating =
-      identifyActive ||
-      (sysState == SYS_STANDBY) ||
-      (sysState == SYS_TIME_GATE && timeGateStartMs && (ms - timeGateStartMs <= 500)) ||
-      (sysState == SYS_END_GAME) ||
-      (sysState == SYS_IN_GAME && animMode != ANIM_STILL) ||
-      disconnected;
+  identifyActive ||
+  (sysState == SYS_STANDBY) ||
+  (sysState == SYS_TIME_GATE && timeGateStartMs && (ms - timeGateStartMs <= 500)) ||
+  (sysState == SYS_END_GAME) ||
+  (sysState == SYS_IN_GAME) ||   
+  disconnected;
 
     if(!animating &&
        !dirty_ &&
@@ -1157,7 +1157,10 @@ private:
   }
 
   uint8_t breathLevel_() const{
-    return 128 + scale8(cubicwave8((uint8_t)(millis() >> 4)), 127);
+    //return 128 + scale8(cubicwave8((uint8_t)(millis() >> 4)), 125);
+    //uint8_t breathLevel_() const{
+  return lerp8by8(75, 255, cubicwave8((uint8_t)(millis() >> 4)));
+
   }
 
   CRGB scaleColor_(const CRGB& c, uint8_t scale) const{

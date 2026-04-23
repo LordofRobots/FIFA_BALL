@@ -104,6 +104,14 @@ enum : uint8_t { SYS_STANDBY = 0,
                  SYS_END_GAME = 4,
                  SYS_RESET = 5 };
 
+enum : uint8_t {
+  ANIM_STILL = 0,
+  ANIM_X_POS = 1,
+  ANIM_X_NEG = 2,
+  ANIM_Y_POS = 3,
+  ANIM_Y_NEG = 4
+};
+
 // Team+level colors (kept for compatibility/UI)
 #define C_WHITE 0
 #define C_BLUE_1 10
@@ -160,7 +168,7 @@ struct __attribute__((packed)) CmdPkt {
   uint8_t msg_type;
   uint8_t sys_state;
   uint8_t color;     // forced to C_WHITE
-  uint8_t anim;      // 0=still, 1=forward, 2=reverse
+  uint8_t anim;      // 0=still, 1=X+, 2=X-, 3=Y+, 4=Y-
   uint16_t beep_hz;  // identify trigger: 3000
   uint16_t beep_ms;  // identify trigger: nonzero
 };
@@ -367,7 +375,7 @@ static inline void sendCmdRaw_(int idx, uint16_t beep_hz = 0, uint16_t beep_ms =
   c.msg_type = MSG_CMD;
   c.sys_state = (uint8_t)gs.sysState;
   c.color = C_WHITE;          // always white
-  c.anim = peers[idx].anim;   // 0/1/2
+  c.anim = peers[idx].anim;   // 0/1/2/3/4
   c.beep_hz = beep_hz;
   c.beep_ms = beep_ms;
   esp_now_send(peers[idx].mac, (uint8_t*)&c, sizeof(c));
@@ -427,21 +435,35 @@ static void processMovementState(int idx) {
 
   // Only animate while actively in-game and moving.
   if (gs.sysState != SYS_IN_GAME || !p.moving) {
-    p.anim = 0;
+    p.anim = ANIM_STILL;
     return;
   }
 
-  // Use dominant signed gyro axis for direction.
-  int ax = abs((int)p.gyroX);
-  int ay = abs((int)p.gyroY);
-  int az = abs((int)p.gyroZ);
+  const int gx = (int)p.gyroX;
+  const int gy = (int)p.gyroY;
+  const int gz = (int)p.gyroZ;
 
-  if (ax >= ay && ax >= az) {
-    p.anim = (p.gyroX >= 0) ? 1 : 2;
+  const int ax = abs(gx);
+  const int ay = abs(gy);
+  const int az = abs(gz);
+
+  // Optional: require X or Y to beat Z by a small margin, since the LED layout
+  // now only has X and Y lanes. This helps prevent random Z dominance from
+  // producing nonsense animations.
+  const int axisMargin = 2;
+
+  if (ax >= ay + axisMargin && ax >= az + axisMargin) {
+    p.anim = (gx >= 0) ? ANIM_X_POS : ANIM_X_NEG;
+  } else if (ay >= ax + axisMargin && ay >= az + axisMargin) {
+    p.anim = (gy >= 0) ? ANIM_Y_POS : ANIM_Y_NEG;
+  } else if (ax >= ay && ax >= az) {
+    p.anim = (gx >= 0) ? ANIM_X_POS : ANIM_X_NEG;
   } else if (ay >= ax && ay >= az) {
-    p.anim = (p.gyroY >= 0) ? 1 : 2;
+    p.anim = (gy >= 0) ? ANIM_Y_POS : ANIM_Y_NEG;
   } else {
-    p.anim = (p.gyroZ >= 0) ? 1 : 2;
+    // Z dominant or ambiguous:
+    // hold still so the ball keeps its last X/Y LED position
+    p.anim = ANIM_STILL;
   }
 }
 

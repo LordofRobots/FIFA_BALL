@@ -109,7 +109,8 @@ enum : uint8_t {
   ANIM_X_POS = 1,
   ANIM_X_NEG = 2,
   ANIM_Y_POS = 3,
-  ANIM_Y_NEG = 4
+  ANIM_Y_NEG = 4,
+  ANIM_GOAL = 5
 };
 
 // Team+level colors (kept for compatibility/UI)
@@ -192,6 +193,8 @@ static const uint32_t PRESENT_MS = 2000;
 static const uint32_t SNAPSHOT_MS = 200;
 static const uint32_t SSE_PUSH_MS = 200;
 static const uint32_t TIMELINE_MS = 10;
+static constexpr uint32_t GOAL_ANIM_MS = 1500;
+static volatile bool g_goalDebugReq = false;
 
 /* ===================== Game state ===================== */
 struct GameState {
@@ -231,6 +234,10 @@ struct Peer {
   int8_t gyroY = 0;
   int8_t gyroZ = 0;
   bool moving = false;
+  int8_t lastGyroZ = 0;
+bool goalAnimActive = false;
+uint32_t goalAnimStartMs = 0;
+uint32_t lastGoalTriggerMs = 0;
   uint32_t uptime_s = 0;
 
   uint8_t anim = 0;
@@ -381,6 +388,21 @@ static inline void sendCmdRaw_(int idx, uint16_t beep_hz = 0, uint16_t beep_ms =
   esp_now_send(peers[idx].mac, (uint8_t*)&c, sizeof(c));
 }
 
+static void triggerGoalDebug_() {
+  const uint32_t now = millis();
+
+  for(int i = 0; i < MAX_CUBES; i++){
+    if(!peers[i].used) continue;
+
+    peers[i].goalAnimActive = true;
+    peers[i].goalAnimStartMs = now;
+    peers[i].lastGoalTriggerMs = now;
+    peers[i].anim = ANIM_GOAL;
+
+    sendCmdRaw_(i);
+  }
+}
+
 /* ===================== Game logic ===================== */
 static inline uint32_t matchTimeMs() {
   if (!gs.matchRunning) return 0;
@@ -429,43 +451,25 @@ static void tallyGateScores() {
 
 static void processMovementState(int idx) {
   Peer& p = peers[idx];
+  const uint32_t now = millis();
 
-  // Ball is always white.
   p.color = C_WHITE;
 
-  // Only animate while actively in-game and moving.
-  if (gs.sysState != SYS_IN_GAME || !p.moving) {
-    p.anim = ANIM_STILL;
-    return;
+  // FMS no longer chooses X/Y movement animations.
+  // Ball handles local still/rolling/bump by itself.
+
+  if(p.goalAnimActive){
+    if(now - p.goalAnimStartMs < GOAL_ANIM_MS){
+      p.anim = ANIM_GOAL;
+      return;
+    } else {
+      p.goalAnimActive = false;
+    }
   }
 
-  const int gx = (int)p.gyroX;
-  const int gy = (int)p.gyroY;
-  const int gz = (int)p.gyroZ;
-
-  const int ax = abs(gx);
-  const int ay = abs(gy);
-  const int az = abs(gz);
-
-  // Optional: require X or Y to beat Z by a small margin, since the LED layout
-  // now only has X and Y lanes. This helps prevent random Z dominance from
-  // producing nonsense animations.
-  const int axisMargin = 2;
-
-  if (ax >= ay + axisMargin && ax >= az + axisMargin) {
-    p.anim = (gx >= 0) ? ANIM_X_POS : ANIM_X_NEG;
-  } else if (ay >= ax + axisMargin && ay >= az + axisMargin) {
-    p.anim = (gy >= 0) ? ANIM_Y_POS : ANIM_Y_NEG;
-  } else if (ax >= ay && ax >= az) {
-    p.anim = (gx >= 0) ? ANIM_X_POS : ANIM_X_NEG;
-  } else if (ay >= ax && ay >= az) {
-    p.anim = (gy >= 0) ? ANIM_Y_POS : ANIM_Y_NEG;
-  } else {
-    // Z dominant or ambiguous:
-    // hold still so the ball keeps its last X/Y LED position
-    p.anim = ANIM_STILL;
-  }
+  p.anim = ANIM_STILL;
 }
+
 
 /* ===================== Snapshot JSON ===================== */
 static constexpr size_t JSON_SZ = 4200;
@@ -1045,6 +1049,7 @@ a{color:var(--text);text-decoration:none}
       <div class="controls">
         <button class="btnSq btnStart" onclick="post('/api/start')">START</button>
         <button class="btnSq btnStop"  onclick="post('/api/reset')">STOP</button>
+        <button class="btnSq" onclick="post('/api/goaltest')">GOAL TEST</button>
       </div>
       <div class="small" style="margin-top:9px">START begins timeline. STOP triggers reset sequence.</div>
       <div class="small" style="margin-top:6px"><a href="/diag">/diag</a></div>
@@ -2556,15 +2561,33 @@ static void diagLedsTick_() {
 volatile bool g_startReq = false;
 volatile bool g_resetReq = false;
 
+// static void applyControlRequests() {
+//   if (g_startReq) {
+//     g_startReq = false;
+//     if (gs.sysState == SYS_END_GAME) enterStandby();
+//     enterStart();
+//   }
+//   if (g_resetReq) {
+//     g_resetReq = false;
+//     enterReset();
+//   }
+// }
+
 static void applyControlRequests() {
   if (g_startReq) {
     g_startReq = false;
     if (gs.sysState == SYS_END_GAME) enterStandby();
     enterStart();
   }
+
   if (g_resetReq) {
     g_resetReq = false;
     enterReset();
+  }
+
+  if (g_goalDebugReq) {
+    g_goalDebugReq = false;
+    triggerGoalDebug_();
   }
 }
 
@@ -2635,6 +2658,11 @@ static void setupWeb() {
 
     sendNoStore(req, 200, "text/plain", "OK");
   });
+
+  server.on("/api/goaltest", HTTP_POST, [](AsyncWebServerRequest* req) {
+  g_goalDebugReq = true;
+  sendNoStore(req, 200, "text/plain", "OK");
+});
 
   events.onConnect([](AsyncEventSourceClient* c) {
     c->send(snapshotPtr(), "state", millis());

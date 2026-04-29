@@ -62,8 +62,20 @@ ANIM_STILL = 0,
 ANIM_X_POS = 1,
 ANIM_X_NEG = 2,
 ANIM_Y_POS = 3,
-ANIM_Y_NEG = 4
+ANIM_Y_NEG = 4,
+ANIM_GOAL = 5
 };
+
+enum : uint8_t {
+  LOCAL_ANIM_STILL   = 20,
+  LOCAL_ANIM_ROLLING = 21,
+  LOCAL_ANIM_BUMP    = 22,
+  LOCAL_ANIM_X_POS   = 23,
+  LOCAL_ANIM_X_NEG   = 24,
+  LOCAL_ANIM_Y_POS   = 25,
+  LOCAL_ANIM_Y_NEG   = 26
+};
+
 static inline uint8_t levelOf(uint8_t c){
   if(c==C_BLUE_1 || c==C_ORANGE_1) return 1;
   if(c==C_BLUE_2 || c==C_ORANGE_2) return 2;
@@ -352,12 +364,64 @@ public:
   bool stable20() const { return stable20_; }
   bool ready() const { return imu_ready_; }
   uint32_t isrCount() const { return g_imu_isrCount; }
-  uint8_t decideDesiredFmsByStartupFace() const { return (curFace_==0) ? 1 : 2; }
+  uint8_t decideDesiredFmsByStartupFace() const { return 2;} //return (curFace_==0) ? 1 : 2; TEMP FIX
 
   int8_t gyroX() const { return (int8_t)constrain((int)lroundf(filtGX_), -127, 127); }
   int8_t gyroY() const { return (int8_t)constrain((int)lroundf(filtGY_), -127, 127); }
   int8_t gyroZ() const { return (int8_t)constrain((int)lroundf(filtGZ_), -127, 127); }
   bool moving() const { return moving_; }
+  bool bumpActive() const { return bumpActive_; }
+
+//   uint8_t localMoveAnim() const {
+//   if(!moving_) return LOCAL_ANIM_STILL;
+
+//   const int gx = gyroX();
+//   const int gy = gyroY();
+
+//   const int ax = abs(gx);
+//   const int ay = abs(gy);
+
+//   const int axisMargin = 2;
+
+//   if(ax >= ay + axisMargin){
+//     return (gx >= 0) ? LOCAL_ANIM_X_POS : LOCAL_ANIM_X_NEG;
+//   }
+
+//   if(ay >= ax + axisMargin){
+//     return (gy >= 0) ? LOCAL_ANIM_Y_POS : LOCAL_ANIM_Y_NEG;
+//   }
+
+//   return LOCAL_ANIM_ROLLING;
+// }
+
+uint8_t localMoveAnim() const {
+  if(!moving_) return LOCAL_ANIM_STILL;
+
+  const int gx = gyroX();
+  const int gy = gyroY();
+  const int gz = gyroZ();
+
+  // If gyro is saturated, don't trust axis direction.
+  // Use generic rolling instead of X/Y strip animation.
+  if(abs(gx) >= 126 || abs(gy) >= 126 || abs(gz) >= 126){
+    return LOCAL_ANIM_ROLLING;
+  }
+
+  const int ax = abs(gx);
+  const int ay = abs(gy);
+
+  const int axisMargin = 8;
+
+  if(ax >= ay + axisMargin){
+    return (gx >= 0) ? LOCAL_ANIM_X_POS : LOCAL_ANIM_X_NEG;
+  }
+
+  if(ay >= ax + axisMargin){
+    return (gy >= 0) ? LOCAL_ANIM_Y_POS : LOCAL_ANIM_Y_NEG;
+  }
+
+  return LOCAL_ANIM_ROLLING;
+}
 
 private:
   MPU6050 mpu_;
@@ -376,6 +440,13 @@ private:
   float filtGY_ = 0.0f;
   float filtGZ_ = 0.0f;
   bool moving_ = false;
+
+  bool gyroCalValid_ = false;
+uint32_t bootMs_ = 0;
+
+  bool bumpActive_ = false;
+uint32_t bumpStartMs_ = 0;
+uint32_t lastBumpMs_ = 0;
 
   static const int8_t Rm_[3][3];
 
@@ -399,28 +470,63 @@ private:
   }
 
   void calibrateGyroBias_(){
-    if(!imu_ready_) return;
+  if(!imu_ready_) return;
 
-    const int N = 200;
-    long sx = 0, sy = 0, sz = 0;
+  const int N = 200;
+  long sx = 0, sy = 0, sz = 0;
 
-    delay(50);
-    for(int i = 0; i < N; ++i){
-      int16_t gx, gy, gz;
-      mpu_.getRotation(&gx, &gy, &gz);
-      sx += gx;
-      sy += gy;
-      sz += gz;
-      delay(3);
-    }
+  delay(200);
 
-    gyroBiasX_ = (float)sx / (float)N / 131.0f;
-    gyroBiasY_ = (float)sy / (float)N / 131.0f;
-    gyroBiasZ_ = (float)sz / (float)N / 131.0f;
+  for(int i = 0; i < N; ++i){
+    int16_t gx, gy, gz;
+    mpu_.getRotation(&gx, &gy, &gz);
+    sx += gx;
+    sy += gy;
+    sz += gz;
+    delay(3);
   }
+
+  gyroBiasX_ = (float)sx / (float)N / 131.0f;
+  gyroBiasY_ = (float)sy / (float)N / 131.0f;
+  gyroBiasZ_ = (float)sz / (float)N / 131.0f;
+
+  filtGX_ = 0.0f;
+  filtGY_ = 0.0f;
+  filtGZ_ = 0.0f;
+  moving_ = false;
+  gyroCalValid_ = true;
+}
+
+  // void calibrateGyroBias_(){
+  //   if(!imu_ready_) return;
+
+  //   const int N = 200;
+  //   long sx = 0, sy = 0, sz = 0;
+
+  //   delay(200);
+  //   for(int i = 0; i < N; ++i){
+  //     int16_t gx, gy, gz;
+  //     mpu_.getRotation(&gx, &gy, &gz);
+  //     sx += gx;
+  //     sy += gy;
+  //     sz += gz;
+  //     delay(3);
+  //   }
+
+//     bootMs_ = millis();
+//     gyroBiasX_ = (float)sx / (float)N / 131.0f;
+//     gyroBiasY_ = (float)sy / (float)N / 131.0f;
+//     gyroBiasZ_ = (float)sz / (float)N / 131.0f;
+
+//     filtGX_ = 0.0f;
+// filtGY_ = 0.0f;
+// filtGZ_ = 0.0f;
+// moving_ = false;
+//   }
 
   void updateGyroMotion_(){
     if(!imu_ready_) return;
+    const uint32_t now = millis();
 
     int16_t gxRaw, gyRaw, gzRaw;
     mpu_.getRotation(&gxRaw, &gyRaw, &gzRaw);
@@ -436,11 +542,127 @@ private:
     filtGY_ = filtGY_ + alpha * (gy - filtGY_);
     filtGZ_ = filtGZ_ + alpha * (gz - filtGZ_);
 
-    const float moveThresh = 10.0f; // deg/s ; tune if needed
-    moving_ =
-      (fabsf(filtGX_) > moveThresh) ||
-      (fabsf(filtGY_) > moveThresh) ||
-      (fabsf(filtGZ_) > moveThresh);
+    // const float moveThresh = 10.0f; // deg/s ; tune if needed
+    // moving_ =
+    //   (fabsf(filtGX_) > moveThresh) ||
+    //   (fabsf(filtGY_) > moveThresh) ||
+    //   (fabsf(filtGZ_) > moveThresh);
+    // More stable movement detection
+const float START_THRESH = 18.0f;  // must exceed this to start moving
+const float STOP_THRESH  = 7.0f;   // must fall below this to stop moving
+
+const float gyroMag = sqrtf(
+  filtGX_ * filtGX_ +
+  filtGY_ * filtGY_ +
+  filtGZ_ * filtGZ_
+);
+
+static uint8_t moveVotes = 0;
+static uint8_t stillVotes = 0;
+
+if(!moving_){
+  if(gyroMag > START_THRESH){
+    if(moveVotes < 5) moveVotes++;
+  } else {
+    moveVotes = 0;
+  }
+
+  if(moveVotes >= 2){
+    moving_ = true;
+    stillVotes = 0;
+  }
+} else {
+  if(gyroMag < STOP_THRESH){
+    if(stillVotes < 10) stillVotes++;
+  } else {
+    stillVotes = 0;
+  }
+
+  if(stillVotes >= 6){
+    moving_ = false;
+    moveVotes = 0;
+  }
+}
+
+//BUMP/HIT DETECTOR
+      int16_t axRaw, ayRaw, azRaw;
+mpu_.getAcceleration(&axRaw, &ayRaw, &azRaw);
+
+// MPU6050 at ±2g range is about 16384 LSB/g.
+const float axg = (float)axRaw / 16384.0f;
+const float ayg = (float)ayRaw / 16384.0f;
+const float azg = (float)azRaw / 16384.0f;
+
+const float amag = sqrtf(axg * axg + ayg * ayg + azg * azg);
+
+// Auto-rezero gyro if the ball is physically sitting still,
+// even if the gyro currently thinks it is moving/saturated.
+static uint32_t rezeroStartMs = 0;
+static float lastAxg = 0.0f;
+static float lastAyg = 0.0f;
+static float lastAzg = 0.0f;
+static bool haveLastAccel = false;
+
+float accelDelta = 999.0f;
+
+if(haveLastAccel){
+  const float dx = axg - lastAxg;
+  const float dy = ayg - lastAyg;
+  const float dz = azg - lastAzg;
+  accelDelta = sqrtf(dx * dx + dy * dy + dz * dz);
+}
+
+lastAxg = axg;
+lastAyg = ayg;
+lastAzg = azg;
+haveLastAccel = true;
+
+// Sitting still means acceleration vector is stable and close to 1g.
+// This works even if gyro is falsely stuck at 127.
+const bool accelLooksStill =
+  haveLastAccel &&
+  fabsf(amag - 1.0f) < 0.18f &&
+  accelDelta < 0.035f;
+
+if(accelLooksStill){
+  if(rezeroStartMs == 0) rezeroStartMs = now;
+
+  if(now - rezeroStartMs > 2000){
+    gyroBiasX_ += filtGX_;
+    gyroBiasY_ += filtGY_;
+    gyroBiasZ_ += filtGZ_;
+
+    filtGX_ = 0.0f;
+    filtGY_ = 0.0f;
+    filtGZ_ = 0.0f;
+
+    moving_ = false;
+    moveVotes = 0;
+    stillVotes = 0;
+
+    rezeroStartMs = now;
+  }
+} else {
+  rezeroStartMs = 0;
+}
+
+
+// Tune these later.
+const float BUMP_G_THRESH = 1.70f;
+const uint32_t BUMP_FLASH_MS = 500;
+const uint32_t BUMP_COOLDOWN_MS = 800;
+
+if(!bumpActive_ &&
+   amag > BUMP_G_THRESH &&
+   now - lastBumpMs_ > BUMP_COOLDOWN_MS){
+  bumpActive_ = true;
+  bumpStartMs_ = now;
+  lastBumpMs_ = now;
+}
+
+if(bumpActive_ && now - bumpStartMs_ > BUMP_FLASH_MS){
+  bumpActive_ = false;
+}
   }
 
   bool readAccelUnit_(float& x, float& y, float& z){
@@ -1011,7 +1233,7 @@ public:
       renderSolidAll_(on ? C_GREEN : C_PURPLE);
 
     } else if(sysState == SYS_STANDBY){
-      renderStandbyTwoPixel_(ms);
+      renderStillPatternHold_();
 
     } else if(sysState == SYS_TIME_GATE){
       if(timeGateStartMs && (ms - timeGateStartMs <= 500)){
@@ -1030,47 +1252,77 @@ public:
 
     } else if(sysState == SYS_IN_GAME){
 
-      // Temporary IMU swap fix kept from your current version
-      if(animMode == ANIM_X_POS){
-        renderYMotion_Negative_(ms);
-      } else if(animMode == ANIM_X_NEG){
-        renderYMotion_Positive_(ms);
-      } else if(animMode == ANIM_Y_POS){
-        renderXMotion_Negative_(ms);
-      } else if(animMode == ANIM_Y_NEG){
-        renderXMotion_Positive_(ms);
-      } else {
-        renderStillPatternHold_();
-      }
+  if(animMode == ANIM_GOAL){
+    renderDiscoBall_(ms);
+  }
+  else if(animMode == LOCAL_ANIM_BUMP){
+    renderBumpOrange_(ms);
+  }
+  else if(animMode == LOCAL_ANIM_X_POS){
+    renderXMotion_Negative_(ms);
+  }
+  else if(animMode == LOCAL_ANIM_X_NEG){
+    renderXMotion_Positive_(ms);
+  }
+  else if(animMode == LOCAL_ANIM_Y_POS){
+    renderYMotion_Negative_(ms);
+  }
+  else if(animMode == LOCAL_ANIM_Y_NEG){
+    renderYMotion_Positive_(ms);
+  }
+  else if(animMode == LOCAL_ANIM_ROLLING){
+    renderRollingLocal_(ms);
+  }
+  else {
+    renderStillPatternHold_();
+  }
+} else if(sysState == SYS_END_GAME){
+  if(!endgameValid_) snapshotEndgameEntry_(ms, teamColor, stable20);
 
-    } else if(sysState == SYS_END_GAME){
-      if(!endgameValid_) snapshotEndgameEntry_(ms, teamColor, stable20);
+  const uint32_t dt = (endgameStartMs_ == 0) ? 0 : (ms - endgameStartMs_);
 
-      const uint32_t dt = (endgameStartMs_ == 0) ? 0 : (ms - endgameStartMs_);
+  if(dt < 2000){
+    renderSolidAll_(C_RED);
+  } 
+  else if(dt < 6000){
+    renderBreathingRed_(ms);
+  } 
+  else {
+    renderStillPatternHold_();
+  }
 
-      if(dt < 2000){
-        renderSolidAll_(C_RED);
-      } else {
-        clearAll_();
-        renderStillPatternHold_();
+} else {
+  renderStandbyTwoPixel_(ms);
+}
+    // } else if(sysState == SYS_END_GAME){
+    //   if(!endgameValid_) snapshotEndgameEntry_(ms, teamColor, stable20);
 
-        const uint32_t t = dt - 2000;
-        const float pos = fmodf((float)t * 0.015f, (float)NUM_LEDS);
-        int i0 = (int)floorf(pos);
-        float frac = pos - (float)i0;
-        if(i0 < 0) i0 = 0;
-        const int i1 = (i0 + 1) % NUM_LEDS;
+    //   const uint32_t dt = (endgameStartMs_ == 0) ? 0 : (ms - endgameStartMs_);
 
-        const uint8_t v0 = (uint8_t)(170.0f * (1.0f - frac));
-        const uint8_t v1 = (uint8_t)(170.0f * frac);
+    //   if(dt < 2000){ //2 Seconds SOLID RED
+    //     renderSolidAll_(C_RED);
+    //   } else if(dt < 6000) {
+    //     renderBreathingRed_(ms); //4 seconds BREATHING RED
+    //   } else { renderStillPatternHold_(); } //Return to standby
+      
 
-        overlayPureRed_(i0, v0);
-        overlayPureRed_(i1, v1);
-      }
+    // //     const uint32_t t = dt - 2000;
+    // //     const float pos = fmodf((float)t * 0.015f, (float)NUM_LEDS);
+    // //     int i0 = (int)floorf(pos);
+    // //     float frac = pos - (float)i0;
+    // //     if(i0 < 0) i0 = 0;
+    // //     const int i1 = (i0 + 1) % NUM_LEDS;
 
-    } else {
-      renderStandbyTwoPixel_(ms);
-    }
+    // //     const uint8_t v0 = (uint8_t)(170.0f * (1.0f - frac));
+    // //     const uint8_t v1 = (uint8_t)(170.0f * frac);
+
+    // //     overlayPureRed_(i0, v0);
+    // //     overlayPureRed_(i1, v1);
+    // //   }
+
+    // // } else {
+    // //   renderStandbyTwoPixel_(ms);
+    // // }
 
     if(disconnected && !identifyActive){
       const bool on = ((ms / 250) & 1) == 0;
@@ -1156,11 +1408,9 @@ private:
     }
   }
 
-  uint8_t breathLevel_() const{
+ uint8_t breathLevel_() const{
     //return 128 + scale8(cubicwave8((uint8_t)(millis() >> 4)), 125);
-    //uint8_t breathLevel_() const{
-  return lerp8by8(75, 255, cubicwave8((uint8_t)(millis() >> 4)));
-
+  return lerp8by8(20, 255, cubicwave8((uint8_t)(millis() >> 4)));
   }
 
   CRGB scaleColor_(const CRGB& c, uint8_t scale) const{
@@ -1174,6 +1424,71 @@ private:
   void clearAll_(){
     memset(leds_, 0, sizeof(leds_));
   }
+//Hit animation
+  void renderBumpOrange_(uint32_t ms){
+  const bool on = ((ms / 80) & 1) == 0;
+  fill_solid(leds_, NUM_LEDS, on ? CRGB(180, 55, 0) : CRGB::Black);
+}
+
+//End game animation 2
+void renderBreathingRed_(uint32_t ms){
+  const uint8_t r = beatsin8(14, 20, 150);
+  fill_solid(leds_, NUM_LEDS, CRGB(r, 0, 0));
+}
+
+// void renderRollingLocal_(uint32_t ms){
+//   if(ms - lastRollUpdate_ >= interval_){
+//     lastRollUpdate_ = ms;
+//     rollOffset_++;
+//     if(rollOffset_ >= LEDS_PER_BLOCK) rollOffset_ = 0;
+//   }
+
+//   const CRGB white = CRGB(90, 90, 90);
+
+//   const CRGB rainbow = CHSV((uint8_t)(ms / 6), 255, 160);
+
+//   renderPairAtPosWide_(BLOCK_X_A, BLOCK_X_B, rollOffset_, white);
+
+//   uint8_t yPos = (rollOffset_ + LEDS_PER_BLOCK / 2) % LEDS_PER_BLOCK;
+//   renderPairAtPosWide_(BLOCK_Y_A, BLOCK_Y_B, yPos, rainbow);
+
+//   xOffset_ = rollOffset_;
+//   yOffset_ = yPos;
+// }
+
+void renderRollingLocal_(uint32_t ms){
+  renderBaseWhiteAllMotion_();
+
+  if(ms - lastRollUpdate_ >= rollInterval_){
+    lastRollUpdate_ = ms;
+    rollOffset_++;
+    if(rollOffset_ >= LEDS_PER_BLOCK) rollOffset_ = 0;
+  }
+
+  const uint8_t secondary = (rollOffset_ + 2) % LEDS_PER_BLOCK;
+
+  heldPrimaryPos_ = rollOffset_;
+  heldSecondaryPos_ = secondary;
+
+  renderSegmentedWholeBall_(rollOffset_, secondary);
+}
+//Goal animation
+  void renderDiscoBall_(uint32_t ms){
+  for(uint8_t i = 0; i < NUM_LEDS; i++){
+    uint8_t hue = (uint8_t)((ms / 8) + i * 31);
+    uint8_t sparkle = (uint8_t)((sin8((uint8_t)(ms / 3 + i * 47)) >> 1) + 127);
+
+    leds_[i] = CHSV(hue, 255, sparkle);
+  }
+
+  uint8_t p0 = (ms / 70) % NUM_LEDS;
+  uint8_t p1 = (p0 + 11) % NUM_LEDS;
+  uint8_t p2 = (p0 + 23) % NUM_LEDS;
+
+  leds_[p0] = CHSV((uint8_t)(ms / 4), 255, 255);
+  leds_[p1] = CHSV((uint8_t)(ms / 4 + 85), 255, 255);
+  leds_[p2] = CHSV((uint8_t)(ms / 4 + 170), 255, 255);
+}
 
   void renderSolidAll_(uint8_t color){
     const CRGB c = colorToCRGB_(color);
@@ -1803,8 +2118,24 @@ if (otaReady_ && WiFi.status() != WL_CONNECTED) {
     soundIdentify_.tick(ms);
 
     cmdSysState_ = link_.cmdSysState();
-    cmdColor_    = C_WHITE;
-    cmdAnim_     = link_.cmdAnim();
+cmdColor_    = C_WHITE;
+
+// FMS only overrides with goal animation now.
+// Normal movement animation is chosen locally by the ball.
+const uint8_t fmsAnim = link_.cmdAnim();
+
+if(fmsAnim == ANIM_GOAL){
+  cmdAnim_ = ANIM_GOAL;
+}
+else if(imu_.bumpActive()){
+  cmdAnim_ = LOCAL_ANIM_BUMP;
+}
+else if(imu_.moving()){
+  cmdAnim_ = imu_.localMoveAnim();
+}
+else{
+  cmdAnim_ = LOCAL_ANIM_STILL;
+}
 
     if(cmdSysState_ == SYS_TIME_GATE){
       if(timeGateStartMs_ == 0) timeGateStartMs_ = ms;
@@ -1814,6 +2145,8 @@ if (otaReady_ && WiFi.status() != WL_CONNECTED) {
 
     const bool linked = link_.linkedNow(ms);
     const bool disconnected = !linked;
+
+    
 
     leds_.tick(ms,
                soundIdentify_.active(),

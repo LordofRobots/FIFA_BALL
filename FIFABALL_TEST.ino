@@ -372,28 +372,6 @@ public:
   bool moving() const { return moving_; }
   bool bumpActive() const { return bumpActive_; }
 
-//   uint8_t localMoveAnim() const {
-//   if(!moving_) return LOCAL_ANIM_STILL;
-
-//   const int gx = gyroX();
-//   const int gy = gyroY();
-
-//   const int ax = abs(gx);
-//   const int ay = abs(gy);
-
-//   const int axisMargin = 2;
-
-//   if(ax >= ay + axisMargin){
-//     return (gx >= 0) ? LOCAL_ANIM_X_POS : LOCAL_ANIM_X_NEG;
-//   }
-
-//   if(ay >= ax + axisMargin){
-//     return (gy >= 0) ? LOCAL_ANIM_Y_POS : LOCAL_ANIM_Y_NEG;
-//   }
-
-//   return LOCAL_ANIM_ROLLING;
-// }
-
 uint8_t localMoveAnim() const {
   if(!moving_) return LOCAL_ANIM_STILL;
 
@@ -497,33 +475,6 @@ uint32_t lastBumpMs_ = 0;
   gyroCalValid_ = true;
 }
 
-  // void calibrateGyroBias_(){
-  //   if(!imu_ready_) return;
-
-  //   const int N = 200;
-  //   long sx = 0, sy = 0, sz = 0;
-
-  //   delay(200);
-  //   for(int i = 0; i < N; ++i){
-  //     int16_t gx, gy, gz;
-  //     mpu_.getRotation(&gx, &gy, &gz);
-  //     sx += gx;
-  //     sy += gy;
-  //     sz += gz;
-  //     delay(3);
-  //   }
-
-//     bootMs_ = millis();
-//     gyroBiasX_ = (float)sx / (float)N / 131.0f;
-//     gyroBiasY_ = (float)sy / (float)N / 131.0f;
-//     gyroBiasZ_ = (float)sz / (float)N / 131.0f;
-
-//     filtGX_ = 0.0f;
-// filtGY_ = 0.0f;
-// filtGZ_ = 0.0f;
-// moving_ = false;
-//   }
-
   void updateGyroMotion_(){
     if(!imu_ready_) return;
     const uint32_t now = millis();
@@ -542,12 +493,6 @@ uint32_t lastBumpMs_ = 0;
     filtGY_ = filtGY_ + alpha * (gy - filtGY_);
     filtGZ_ = filtGZ_ + alpha * (gz - filtGZ_);
 
-    // const float moveThresh = 10.0f; // deg/s ; tune if needed
-    // moving_ =
-    //   (fabsf(filtGX_) > moveThresh) ||
-    //   (fabsf(filtGY_) > moveThresh) ||
-    //   (fabsf(filtGZ_) > moveThresh);
-    // More stable movement detection
 const float START_THRESH = 18.0f;  // must exceed this to start moving
 const float STOP_THRESH  = 7.0f;   // must fall below this to stop moving
 
@@ -736,393 +681,6 @@ const int8_t ImuManager::Rm_[3][3] = {
   { 0, 0,+1}
 };
 
-/* ===================== LED Management ===================== */
-// class LedManager {
-// public:
-//   void begin(){
-//     FastLED.addLeds<NEOPIXEL, LED_PIN>(leds_, NUM_LEDS);
-//     FastLED.setCorrection(UncorrectedColor);
-//     FastLED.setDither(0);
-//     FastLED.setBrightness(brightness_);
-
-//     // Boot rainbow animation
-//     Serial.println("LED BEGIN / RAINBOW");
-//     for(uint8_t step = 0; step < 32; step++){
-//       for(uint8_t i = 0; i < NUM_LEDS; i++){
-//         leds_[i] = CHSV((uint8_t)(step * 8 + i * 10), 255, 180);
-//       }
-//       FastLED.show();
-//       delay(25);
-//     }
-
-//     clearAll_();
-//     FastLED.show();
-
-//     // standby sparkle target
-//     rp_target_ = (uint8_t)(esp_random() % NUM_LEDS);
-//     rp_nextMs_ = millis() + 500;
-
-//     lastRenderMs_ = 0;
-//     lastShowMs_ = 0;
-//     dirty_ = true;
-
-//     endgameValid_ = false;
-//     endgameStartMs_ = 0;
-//     endgameEntryColor_ = C_WHITE;
-//     endgameEntryUnstable_ = false;
-
-//     // hold state for X/Y
-//     xOffset_ = LEDS_PER_BLOCK / 2;
-//     yOffset_ = LEDS_PER_BLOCK / 2;
-//     lastXUpdate_ = 0;
-//     lastYUpdate_ = 0;
-//   }
-
-//   void tick(uint32_t ms,
-//             bool identifyActive,
-//             bool disconnected,
-//             uint8_t sysState,
-//             uint8_t teamColor,
-//             bool stable20,
-//             uint32_t timeGateStartMs,
-//             uint8_t animMode){
-
-//     if(sysState != lastSysStateTransition_){
-//       if(sysState == SYS_END_GAME){
-//         snapshotEndgameEntry_(ms, teamColor, stable20);
-//       } else {
-//         endgameValid_ = false;
-//         endgameStartMs_ = 0;
-//         endgameEntryColor_ = C_WHITE;
-//         endgameEntryUnstable_ = false;
-//       }
-//       lastSysStateTransition_ = sysState;
-//       dirty_ = true;
-//     }
-
-//     if((int32_t)(ms - lastRenderMs_) < (int32_t)RENDER_PERIOD_MS_){
-//       if(dirty_ && (int32_t)(ms - lastShowMs_) >= (int32_t)SHOW_PERIOD_MS_){
-//         FastLED.show();
-//         lastShowMs_ = ms;
-//         dirty_ = false;
-//       }
-//       return;
-//     }
-//     lastRenderMs_ = ms;
-
-//     const bool animating =
-//       identifyActive ||
-//       (sysState == SYS_STANDBY) ||
-//       (sysState == SYS_TIME_GATE && timeGateStartMs && (ms - timeGateStartMs <= 500)) ||
-//       (sysState == SYS_END_GAME) ||
-//       (sysState == SYS_IN_GAME && animMode != ANIM_STILL) ||
-//       disconnected;
-
-//     if(!animating &&
-//        !dirty_ &&
-//        sysState == lastSysStateLatch_ &&
-//        teamColor == lastTeamColor_ &&
-//        identifyActive == lastIdentify_ &&
-//        disconnected == lastDisconnected_ &&
-//        stable20 == lastStable_ &&
-//        animMode == lastAnimMode_){
-//       return;
-//     }
-
-//     lastSysStateLatch_ = sysState;
-//     lastTeamColor_ = teamColor;
-//     lastIdentify_ = identifyActive;
-//     lastDisconnected_ = disconnected;
-//     lastStable_ = stable20;
-//     lastAnimMode_ = animMode;
-
-//     clearAll_();
-
-//     if(identifyActive){
-//       const bool on = flash5Hz_(ms);
-//       renderSolidAll_(on ? C_GREEN : C_PURPLE);
-
-//     } else if(sysState == SYS_STANDBY){
-//       renderStandbyTwoPixel_(ms);
-
-//     } else if(sysState == SYS_TIME_GATE){
-//       if(timeGateStartMs && (ms - timeGateStartMs <= 500)){
-//         for(uint8_t i = 0; i < NUM_LEDS; i++){
-//           leds_[i] = CHSV((uint8_t)((ms / 3) + i * 10), 255, 180);
-//         }
-//       } else {
-//         // hold last in-game position when time gate settles
-//         renderStillPatternHold_();
-//       }
-
-//     } else if(sysState == SYS_RESET){
-//       renderSolidAll_(C_PURPLE);
-
-//     } else if(sysState == SYS_GAME_START){
-//       renderSolidAll_(C_GREEN);
-
-//     } else if(sysState == SYS_IN_GAME){
-//       if(animMode == ANIM_X_POS){
-//         renderXMotion_Positive_(ms);
-//       } else if(animMode == ANIM_X_NEG){
-//         renderXMotion_Negative_(ms);
-//       } else if(animMode == ANIM_Y_POS){
-//         renderYMotion_Positive_(ms);
-//       } else if(animMode == ANIM_Y_NEG){
-//         renderYMotion_Negative_(ms);
-//       } else {
-//         // THIS is the preserved "still holds last lit position" behavior
-//         renderStillPatternHold_();
-//       }
-
-//     } else if(sysState == SYS_END_GAME){
-//       if(!endgameValid_) snapshotEndgameEntry_(ms, teamColor, stable20);
-
-//       const uint32_t dt = (endgameStartMs_ == 0) ? 0 : (ms - endgameStartMs_);
-
-//       if(dt < 2000){
-//         renderSolidAll_(C_RED);
-//       } else {
-//         clearAll_();
-
-//         // Since the ball is effectively white-only, use the held X/Y pattern as underlay.
-//         renderStillPatternHold_();
-
-//         const uint32_t t = dt - 2000;
-//         const float pos = fmodf((float)t * 0.015f, (float)NUM_LEDS);
-//         int i0 = (int)floorf(pos);
-//         float frac = pos - (float)i0;
-//         if(i0 < 0) i0 = 0;
-//         const int i1 = (i0 + 1) % NUM_LEDS;
-
-//         const uint8_t v0 = (uint8_t)(170.0f * (1.0f - frac));
-//         const uint8_t v1 = (uint8_t)(170.0f * frac);
-
-//         overlayPureRed_(i0, v0);
-//         overlayPureRed_(i1, v1);
-//       }
-
-//     } else {
-//       renderStandbyTwoPixel_(ms);
-//     }
-
-//     if(disconnected && !identifyActive){
-//       const bool on = ((ms / 250) & 1) == 0;
-//       applyDisconnectedOverlay_(on ? CRGB(100,0,0) : CRGB::Black);
-//     }
-
-//     dirty_ = true;
-
-//     if((int32_t)(ms - lastShowMs_) >= (int32_t)SHOW_PERIOD_MS_){
-//       FastLED.show();
-//       lastShowMs_ = ms;
-//       dirty_ = false;
-//     }
-//   }
-
-// private:
-//   static constexpr uint8_t  BLOCK_X_A = 0; // block 1
-//   static constexpr uint8_t  BLOCK_X_B = 1; // block 2
-//   static constexpr uint8_t  BLOCK_Y_A = 2; // block 3
-//   static constexpr uint8_t  BLOCK_Y_B = 3; // block 4
-
-//   CRGB leds_[NUM_LEDS];
-
-//   static constexpr uint8_t  TARGET_FPS_ = 120;
-//   static constexpr uint32_t RENDER_PERIOD_MS_ = (1000 / TARGET_FPS_);
-//   static constexpr uint32_t SHOW_PERIOD_MS_   = (1000 / TARGET_FPS_);
-//   static constexpr uint16_t interval_         = 100;
-
-//   uint8_t brightness_ = 80;
-
-//   uint32_t lastRenderMs_ = 0;
-//   uint32_t lastShowMs_ = 0;
-//   bool dirty_ = true;
-
-//   uint8_t lastSysStateTransition_ = 0xFF;
-//   uint8_t lastSysStateLatch_ = 0xFF;
-//   uint8_t lastTeamColor_ = 0xFF;
-//   bool lastIdentify_ = false;
-//   bool lastDisconnected_ = false;
-//   bool lastStable_ = true;
-//   uint8_t lastAnimMode_ = 0xFF;
-
-//   uint8_t rp_target_ = 0;
-//   uint32_t rp_nextMs_ = 0;
-
-//   bool endgameValid_ = false;
-//   uint32_t endgameStartMs_ = 0;
-//   uint8_t endgameEntryColor_ = C_WHITE;
-//   bool endgameEntryUnstable_ = false;
-
-//   // independent held positions for X and Y
-//   uint8_t xOffset_ = 0;
-//   uint8_t yOffset_ = 0;
-//   uint32_t lastXUpdate_ = 0;
-//   uint32_t lastYUpdate_ = 0;
-
-//   static inline uint16_t ledIndex_(uint8_t block, uint8_t pos){
-//     return (uint16_t)block * LEDS_PER_BLOCK + pos;
-//   }
-
-//   static inline bool flash5Hz_(uint32_t ms){
-//     return ((ms / 100) & 1) == 0;
-//   }
-
-//   static CRGB colorToCRGB_(uint8_t c){
-//     switch(c){
-//       case C_WHITE:    return CRGB(80,90,90);
-//       case C_BLUE_1:
-//       case C_BLUE_2:   return CRGB(0,0,160);
-//       case C_ORANGE_1:
-//       case C_ORANGE_2: return CRGB(170,40,0);
-//       case C_RED:      return CRGB(150,0,0);
-//       case C_GREEN:    return CRGB(0,150,0);
-//       case C_PURPLE:   return CRGB(100,0,150);
-//       default:         return CRGB::Black;
-//     }
-//   }
-
-//   void clearAll_(){
-//     memset(leds_, 0, sizeof(leds_));
-//   }
-
-//   void renderSolidAll_(uint8_t color){
-//     const CRGB c = colorToCRGB_(color);
-//     for(uint8_t i = 0; i < NUM_LEDS; i++){
-//       leds_[i] = c;
-//     }
-//   }
-
-//   void applyDisconnectedOverlay_(const CRGB& c){
-//     // Put one marker LED near the center of each block
-//     for(uint8_t b = 0; b < NUM_BLOCKS; b++){
-//       leds_[ledIndex_(b, LEDS_PER_BLOCK / 2)] = c;
-//     }
-//   }
-
-//   void snapshotEndgameEntry_(uint32_t ms, uint8_t teamColor, bool stable20){
-//     endgameStartMs_ = ms;
-//     endgameEntryColor_ = teamColor;
-//     endgameEntryUnstable_ = !stable20;
-//     endgameValid_ = true;
-//   }
-
-//   void overlayPureRed_(int idx, uint8_t redVal){
-//     if(redVal == 0) return;
-//     if(idx < 0) return;
-//     if(idx >= (int)NUM_LEDS) return;
-
-//     leds_[idx].r = redVal;
-//     leds_[idx].g = 0;
-//     leds_[idx].b = 0;
-//   }
-
-//   void setMirroredPairPixel_(uint8_t blockA, uint8_t blockB, uint8_t pos, const CRGB& color){
-//     if(pos >= LEDS_PER_BLOCK) return;
-
-//     leds_[ledIndex_(blockA, pos)] = color;
-//     leds_[ledIndex_(blockB, (LEDS_PER_BLOCK - 1) - pos)] = color;
-//   }
-
-//   void renderPairAtPosWide_(uint8_t blockA, uint8_t blockB, uint8_t pos, const CRGB& color){
-//     setMirroredPairPixel_(blockA, blockB, pos, color);
-
-//     if(pos + 1 < LEDS_PER_BLOCK){
-//       setMirroredPairPixel_(blockA, blockB, pos + 1, color);
-//     }
-//   }
-
-//   void renderXHold_(){
-//     const CRGB w = colorToCRGB_(C_WHITE);
-//     renderPairAtPosWide_(BLOCK_X_A, BLOCK_X_B, xOffset_, w);
-//   }
-
-//   void renderYHold_(){
-//     const CRGB w = colorToCRGB_(C_WHITE);
-//     renderPairAtPosWide_(BLOCK_Y_A, BLOCK_Y_B, yOffset_, w);
-//   }
-
-//   void renderStillPatternHold_(){
-//     renderXHold_();
-//     renderYHold_();
-//   }
-
-//   void renderXMotion_Positive_(uint32_t ms){
-//     const CRGB w = colorToCRGB_(C_WHITE);
-
-//     if((uint32_t)(ms - lastXUpdate_) >= interval_){
-//       xOffset_ = (xOffset_ + 1) % LEDS_PER_BLOCK;
-//       lastXUpdate_ = ms;
-//     }
-
-//     renderPairAtPosWide_(BLOCK_X_A, BLOCK_X_B, xOffset_, w);
-//     renderYHold_();
-//   }
-
-//   void renderXMotion_Negative_(uint32_t ms){
-//     const CRGB w = colorToCRGB_(C_WHITE);
-
-//     if((uint32_t)(ms - lastXUpdate_) >= interval_){
-//       xOffset_ = (xOffset_ + LEDS_PER_BLOCK - 1) % LEDS_PER_BLOCK;
-//       lastXUpdate_ = ms;
-//     }
-
-//     renderPairAtPosWide_(BLOCK_X_A, BLOCK_X_B, xOffset_, w);
-//     renderYHold_();
-//   }
-
-//   void renderYMotion_Positive_(uint32_t ms){
-//     const CRGB w = colorToCRGB_(C_WHITE);
-
-//     if((uint32_t)(ms - lastYUpdate_) >= interval_){
-//       yOffset_ = (yOffset_ + 1) % LEDS_PER_BLOCK;
-//       lastYUpdate_ = ms;
-//     }
-
-//     renderXHold_();
-//     renderPairAtPosWide_(BLOCK_Y_A, BLOCK_Y_B, yOffset_, w);
-//   }
-
-//   void renderYMotion_Negative_(uint32_t ms){
-//     const CRGB w = colorToCRGB_(C_WHITE);
-
-//     if((uint32_t)(ms - lastYUpdate_) >= interval_){
-//       yOffset_ = (yOffset_ + LEDS_PER_BLOCK - 1) % LEDS_PER_BLOCK;
-//       lastYUpdate_ = ms;
-//     }
-
-//     renderXHold_();
-//     renderPairAtPosWide_(BLOCK_Y_A, BLOCK_Y_B, yOffset_, w);
-//   }
-
-//   void renderStandbyTwoPixel_(uint32_t ms){
-//     if((int32_t)(ms - rp_nextMs_) >= 0){
-//       rp_target_ = (uint8_t)(esp_random() % NUM_LEDS);
-//       rp_nextMs_ = ms + 1000;
-//     }
-
-//     leds_[rp_target_] = CHSV((uint8_t)(((ms / 10) & 0xFF) + rp_target_ * 7), 255, 190);
-
-//     // Mirror to the adjacent partner block when possible
-//     uint8_t block = rp_target_ / LEDS_PER_BLOCK;
-//     uint8_t pos   = rp_target_ % LEDS_PER_BLOCK;
-
-//     if(block == BLOCK_X_A){
-//       leds_[ledIndex_(BLOCK_X_B, (LEDS_PER_BLOCK - 1) - pos)] =
-//         CHSV((uint8_t)(((ms / 10) & 0xFF) + (rp_target_ + 5) * 7), 255, 190);
-//     } else if(block == BLOCK_X_B){
-//       leds_[ledIndex_(BLOCK_X_A, (LEDS_PER_BLOCK - 1) - pos)] =
-//         CHSV((uint8_t)(((ms / 10) & 0xFF) + (rp_target_ + 5) * 7), 255, 190);
-//     } else if(block == BLOCK_Y_A){
-//       leds_[ledIndex_(BLOCK_Y_B, (LEDS_PER_BLOCK - 1) - pos)] =
-//         CHSV((uint8_t)(((ms / 10) & 0xFF) + (rp_target_ + 5) * 7), 255, 190);
-//     } else {
-//       leds_[ledIndex_(BLOCK_Y_A, (LEDS_PER_BLOCK - 1) - pos)] =
-//         CHSV((uint8_t)(((ms / 10) & 0xFF) + (rp_target_ + 5) * 7), 255, 190);
-//     }
-//   }
-// };
 class LedManager {
 public:
   void begin(){
@@ -1265,10 +823,10 @@ public:
     renderXMotion_Positive_(ms);
   }
   else if(animMode == LOCAL_ANIM_Y_POS){
-    renderYMotion_Negative_(ms);
+    renderYMotion_Positive_(ms);
   }
   else if(animMode == LOCAL_ANIM_Y_NEG){
-    renderYMotion_Positive_(ms);
+    renderYMotion_Negative_(ms);
   }
   else if(animMode == LOCAL_ANIM_ROLLING){
     renderRollingLocal_(ms);
@@ -1294,36 +852,7 @@ public:
 } else {
   renderStandbyTwoPixel_(ms);
 }
-    // } else if(sysState == SYS_END_GAME){
-    //   if(!endgameValid_) snapshotEndgameEntry_(ms, teamColor, stable20);
-
-    //   const uint32_t dt = (endgameStartMs_ == 0) ? 0 : (ms - endgameStartMs_);
-
-    //   if(dt < 2000){ //2 Seconds SOLID RED
-    //     renderSolidAll_(C_RED);
-    //   } else if(dt < 6000) {
-    //     renderBreathingRed_(ms); //4 seconds BREATHING RED
-    //   } else { renderStillPatternHold_(); } //Return to standby
-      
-
-    // //     const uint32_t t = dt - 2000;
-    // //     const float pos = fmodf((float)t * 0.015f, (float)NUM_LEDS);
-    // //     int i0 = (int)floorf(pos);
-    // //     float frac = pos - (float)i0;
-    // //     if(i0 < 0) i0 = 0;
-    // //     const int i1 = (i0 + 1) % NUM_LEDS;
-
-    // //     const uint8_t v0 = (uint8_t)(170.0f * (1.0f - frac));
-    // //     const uint8_t v1 = (uint8_t)(170.0f * frac);
-
-    // //     overlayPureRed_(i0, v0);
-    // //     overlayPureRed_(i1, v1);
-    // //   }
-
-    // // } else {
-    // //   renderStandbyTwoPixel_(ms);
-    // // }
-
+ 
     if(disconnected && !identifyActive){
       const bool on = ((ms / 250) & 1) == 0;
       applyDisconnectedOverlay_(on ? CRGB(100,0,0) : CRGB::Black);
@@ -1435,26 +964,6 @@ void renderBreathingRed_(uint32_t ms){
   const uint8_t r = beatsin8(14, 20, 150);
   fill_solid(leds_, NUM_LEDS, CRGB(r, 0, 0));
 }
-
-// void renderRollingLocal_(uint32_t ms){
-//   if(ms - lastRollUpdate_ >= interval_){
-//     lastRollUpdate_ = ms;
-//     rollOffset_++;
-//     if(rollOffset_ >= LEDS_PER_BLOCK) rollOffset_ = 0;
-//   }
-
-//   const CRGB white = CRGB(90, 90, 90);
-
-//   const CRGB rainbow = CHSV((uint8_t)(ms / 6), 255, 160);
-
-//   renderPairAtPosWide_(BLOCK_X_A, BLOCK_X_B, rollOffset_, white);
-
-//   uint8_t yPos = (rollOffset_ + LEDS_PER_BLOCK / 2) % LEDS_PER_BLOCK;
-//   renderPairAtPosWide_(BLOCK_Y_A, BLOCK_Y_B, yPos, rainbow);
-
-//   xOffset_ = rollOffset_;
-//   yOffset_ = yPos;
-// }
 
 void renderRollingLocal_(uint32_t ms){
   renderBaseWhiteAllMotion_();
@@ -2080,12 +1589,6 @@ public:
   void loop(){
 
     static uint32_t lastWifiRetryMs = 0;
-
-// if (WiFi.status() != WL_CONNECTED && millis() - lastWifiRetryMs > 5000) {
-//   lastWifiRetryMs = millis();
-//   WiFi.begin(OTA_SSID, OTA_PASS);
-// }
-
 
 if (!link_.linkedNow(millis()) &&
     WiFi.status() != WL_CONNECTED &&

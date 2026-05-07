@@ -94,7 +94,8 @@ enum MsgType : uint8_t { MSG_PAIR_REQ = 1,
                          MSG_PAIR_ACK = 2,
                          MSG_POLL = 3,
                          MSG_STATUS = 4,
-                         MSG_CMD = 5 };
+                         MSG_CMD = 5,
+                         MSG_GOAL_EVENT = 6 };
 
 // System states
 enum : uint8_t { SYS_STANDBY = 0,
@@ -162,6 +163,14 @@ struct __attribute__((packed)) StatusPkt {
   int8_t gyroZ;
   uint8_t moving;
   uint32_t uptime_s;
+};
+//Goal Event Packet
+struct __attribute__((packed)) GoalEventPkt {
+  uint8_t proto_ver;
+  uint8_t msg_type;
+  uint8_t fms_id;
+  uint32_t goal_count;
+  uint32_t nonce;
 };
 
 struct __attribute__((packed)) CmdPkt {
@@ -2051,6 +2060,20 @@ static void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len
   const uint8_t* src = info->src_addr;
   const uint8_t mt = data[1];
   const uint32_t now = millis();
+//GOAL RECEIVE
+  if (mt == MSG_GOAL_EVENT && len == (int)sizeof(GoalEventPkt)) {
+  GoalEventPkt ge;
+  memcpy(&ge, data, sizeof(ge));
+
+  if (ge.fms_id != FMS_ID_()) return;
+
+  g_goalDebugReq = true;
+
+  Serial.print("Goal event received from controller. Goal #");
+  Serial.println(ge.goal_count);
+
+  return;
+}
 
   if (mt == MSG_PAIR_REQ && len == (int)sizeof(PairReq)) {
     PairReq pr;
@@ -2124,6 +2147,8 @@ static void resyncEspNowChannelAndPeers_() {
   uint8_t ch = wifiChannel;
   esp_wifi_get_channel(&ch, &sc);
   wifiChannel = ch;
+  Serial.print("FMS ESP-NOW channel: ");
+Serial.println(wifiChannel);
 
   upsertEspNowPeer(BCAST, wifiChannel);
   for (int i = 0; i < MAX_CUBES; i++) {
